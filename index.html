@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="الصلاحيات">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>متابعة الصلاحيات</title>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<style>
+:root{--bg:#f4f6f5;--card:#fff;--ink:#12201c;--mute:#5d6b66;--line:#dbe3df;--main:#0b6b57;--red:#c62828;--amb:#e08600;--grn:#1b7f3b}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:-apple-system,"Segoe UI",Tahoma,sans-serif;padding:env(safe-area-inset-top) 0 calc(80px + env(safe-area-inset-bottom))}
+header{padding:16px;font-size:20px;font-weight:700}
+.tabs{display:flex;gap:6px;padding:0 12px 10px;overflow-x:auto}
+.tabs button{flex:none;border:1.5px solid var(--line);background:var(--card);padding:9px 14px;border-radius:20px;font-size:15px;color:var(--ink)}
+.tabs button.on{background:var(--main);color:#fff;border-color:var(--main)}
+.list{padding:0 12px}
+.item{background:var(--card);border-radius:12px;padding:12px 14px;margin-bottom:10px;border-inline-start:8px solid var(--grn)}
+.item.red{border-color:var(--red)}.item.amb{border-color:var(--amb)}
+.item h3{margin:0 0 4px;font-size:17px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;color:var(--mute);font-size:14px}
+.badge{font-weight:700;font-size:14px}
+.red .badge{color:var(--red)}.amb .badge{color:var(--amb)}.grn .badge{color:var(--grn)}
+.del{border:0;background:none;color:var(--red);font-size:14px;padding:6px 0}
+.empty{text-align:center;color:var(--mute);padding:40px 20px;line-height:1.8}
+.bar{position:fixed;inset:auto 0 0 0;background:var(--card);border-top:1px solid var(--line);padding:10px 12px calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px}
+.bar button{flex:1;padding:14px 6px;font-size:16px;border-radius:12px;border:1.5px solid var(--main);background:var(--card);color:var(--main);font-weight:600}
+.bar button.pri{background:var(--main);color:#fff}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-end;z-index:5}
+.sheet.show{display:flex}
+.panel{background:var(--card);width:100%;max-height:92%;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom))}
+.panel h2{margin:0 0 12px;font-size:18px}
+label{display:block;font-size:14px;color:var(--mute);margin:10px 0 4px}
+input{width:100%;font-size:17px;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+.btns{display:flex;gap:8px;margin-top:16px}
+.btns button{flex:1;padding:14px;font-size:16px;border-radius:12px;border:1.5px solid var(--main);background:var(--card);color:var(--main);font-weight:600}
+.btns .pri{background:var(--main);color:#fff}
+video{width:100%;border-radius:12px;background:#000;max-height:50vh;object-fit:cover}
+.hint{font-size:14px;color:var(--mute);margin:8px 0}
+.note{background:#e9f4f0;padding:8px 10px;border-radius:8px;font-size:14px;margin-top:8px}
+</style>
+</head>
+<body>
+<header>متابعة صلاحية الأدوية</header>
+<div class="tabs" id="tabs"></div>
+<div class="list" id="list"></div>
+
+<div class="bar">
+  <button class="pri" onclick="openScan()">مسح علبة</button>
+  <button onclick="openForm()">إدخال يدوي</button>
+  <button onclick="openTools()">تصدير</button>
+</div>
+
+<!-- Scan sheet -->
+<div class="sheet" id="scanSheet"><div class="panel">
+  <h2>وجّه الكاميرا على الباركود</h2>
+  <video id="vid" playsinline muted></video>
+  <div class="hint" id="scanMsg">جاري تشغيل الكاميرا...</div>
+  <div class="btns"><button onclick="closeScan()">إلغاء</button></div>
+</div></div>
+
+<!-- Form sheet -->
+<div class="sheet" id="formSheet"><div class="panel">
+  <h2>بيانات العلبة</h2>
+  <div class="note" id="fNote" style="display:none"></div>
+  <label>اسم الدواء</label><input id="fName" placeholder="مثال: Panadol 500">
+  <label>تاريخ الانتهاء</label><input id="fExp" type="date">
+  <label>رقم التشغيلة (Batch)</label><input id="fBatch">
+  <label>الكمية</label><input id="fQty" type="number" inputmode="numeric" value="1" min="1">
+  <label>الباركود (GTIN)</label><input id="fGtin" inputmode="numeric">
+  <div class="btns"><button onclick="closeForm()">إلغاء</button><button class="pri" onclick="saveItem()">حفظ</button></div>
+  <div class="btns"><button onclick="saveAndNext()">حفظ ومسح التالي</button></div>
+</div></div>
+
+<!-- Tools sheet -->
+<div class="sheet" id="toolSheet"><div class="panel">
+  <h2>تصدير ونسخ احتياطي</h2>
+  <div class="btns"><button class="pri" onclick="exportCSV()">ملف Excel (للمرتجعات)</button></div>
+  <div class="hint">يصدّر الأصناف المعروضة في التبويب الحالي.</div>
+  <div class="btns"><button onclick="backup()">نسخة احتياطية</button><button onclick="document.getElementById('imp').click()">استرجاع</button></div>
+  <input type="file" id="imp" accept=".json" style="display:none" onchange="restore(event)">
+  <div class="btns"><button onclick="closeTools()">إغلاق</button></div>
+</div></div>
+
+<script>
+const KEY='expiry_items_v1', NAMES='expiry_names_v1';
+let items=[], names={}, tab='soon3', reader=null, scanning=false, chain=false;
+try{items=JSON.parse(localStorage.getItem(KEY)||'[]');names=JSON.parse(localStorage.getItem(NAMES)||'{}')}catch(e){}
+const persist=()=>{try{localStorage.setItem(KEY,JSON.stringify(items));localStorage.setItem(NAMES,JSON.stringify(names))}catch(e){alert('تعذر الحفظ')}};
+const $=id=>document.getElementById(id);
+const TABS=[['expired','منتهي'],['soon3','خلال ٣ شهور'],['soon6','خلال ٦ شهور'],['all','الكل']];
+
+function daysLeft(d){const t=new Date();t.setHours(0,0,0,0);return Math.round((new Date(d+'T00:00:00')-t)/864e5)}
+function status(d){const n=daysLeft(d);return n<0?'red':n<=90?'amb':'grn'}
+function label(d){const n=daysLeft(d);if(n<0)return 'منتهي من '+(-n)+' يوم';if(n===0)return 'ينتهي اليوم';if(n<60)return 'باقي '+n+' يوم';return 'باقي '+Math.round(n/30)+' شهر'}
+function filtered(){
+  let r=items.slice().sort((a,b)=>a.exp.localeCompare(b.exp));
+  if(tab==='expired')r=r.filter(i=>daysLeft(i.exp)<0);
+  if(tab==='soon3')r=r.filter(i=>daysLeft(i.exp)<=90);
+  if(tab==='soon6')r=r.filter(i=>daysLeft(i.exp)<=180);
+  return r;
+}
+function render(){
+  $('tabs').innerHTML=TABS.map(([k,v])=>`<button class="${k===tab?'on':''}" onclick="tab='${k}';render()">${v}</button>`).join('');
+  const r=filtered();
+  if(!r.length){$('list').innerHTML='<div class="empty">لا توجد أصناف هنا.<br>اضغط «مسح علبة» لإضافة أول صنف.</div>';return}
+  $('list').innerHTML=r.map(i=>{const s=status(i.exp);return `<div class="item ${s}"><h3>${esc(i.name||'بدون اسم')}</h3>
+  <div class="row"><span>${i.exp}</span><span class="badge ${s}">${label(i.exp)}</span></div>
+  <div class="row"><span>Batch: ${esc(i.batch||'-')} • الكمية: ${i.qty}</span><button class="del" onclick="del('${i.id}')">حذف</button></div></div>`}).join('');
+}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function del(id){if(confirm('حذف هذا الصنف؟')){items=items.filter(i=>i.id!==id);persist();render()}}
+
+/* ---- GS1 parsing ---- */
+function parseGS1(raw){
+  const out={};let s=raw.replace(/^\]d2|^\]C1|^\]Q3/,'');
+  if(s.includes('(')){ // human readable form (01)...(17)...
+    const re=/\((\d{2,4})\)([^(]*)/g;let m;
+    while((m=re.exec(s)))out[m[1]]=m[2];
+  }else{
+    const GS='\x1d';const fixed={'00':18,'01':14,'02':14,'11':6,'13':6,'15':6,'17':6,'20':2};
+    let i=0;
+    while(i<s.length){
+      if(s[i]===GS){i++;continue}
+      const ai=s.substr(i,2);
+      if(fixed[ai]){out[ai]=s.substr(i+2,fixed[ai]);i+=2+fixed[ai]}
+      else if(['10','21','22','30','37','90','91','92','93','94','95','96','97','98','99'].includes(ai)){
+        let e=s.indexOf(GS,i+2);if(e<0)e=s.length;
+        out[ai]=s.substring(i+2,e);i=e;
+      }else break;
+    }
+  }
+  let exp=null;
+  if(out['17']&&/^\d{6}$/.test(out['17'])){
+    const yy=+out['17'].slice(0,2),mm=+out['17'].slice(2,4);let dd=+out['17'].slice(4,6);
+    const yr=2000+yy;if(dd===0)dd=new Date(yr,mm,0).getDate();
+    exp=`${yr}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+  }
+  return{gtin:out['01']||'',batch:out['10']||'',exp};
+}
+
+/* ---- Scanner ---- */
+async function openScan(){
+  if(typeof ZXing==='undefined'){alert('مكتبة الباركود لم تُحمّل. تأكد من الإنترنت وأعد فتح الصفحة.');return}
+  $('scanSheet').classList.add('show');$('scanMsg').textContent='جاري تشغيل الكاميرا...';
+  const F=ZXing.BarcodeFormat,H=ZXing.DecodeHintType,hints=new Map();
+  hints.set(H.POSSIBLE_FORMATS,[F.DATA_MATRIX,F.QR_CODE,F.EAN_13,F.EAN_8,F.CODE_128,F.CODE_39,F.UPC_A,F.ITF]);
+  hints.set(H.TRY_HARDER,true);
+  reader=new ZXing.BrowserMultiFormatReader(hints,300);scanning=true;
+  try{
+    await reader.decodeFromConstraints({video:{facingMode:{ideal:'environment'},width:{ideal:1280},height:{ideal:720}}},'vid',(res)=>{
+      if(res&&scanning){scanning=false;if(navigator.vibrate)navigator.vibrate(80);onCode(res.getText())}
+    });
+    $('scanMsg').textContent='قرّب العلبة حتى يظهر الباركود واضحًا';
+  }catch(e){$('scanMsg').textContent='تعذر فتح الكاميرا. اسمح بالوصول للكاميرا من إعدادات Safari.'}
+}
+function closeScan(){scanning=false;chain=false;try{reader&&reader.reset()}catch(e){}$('scanSheet').classList.remove('show')}
+function onCode(text){
+  try{reader.reset()}catch(e){}
+  $('scanSheet').classList.remove('show');
+  const g=parseGS1(text);
+  const looksGS1=g.gtin||g.exp;
+  const gtin=g.gtin||(/^\d{8,14}$/.test(text)?text:'');
+  openForm({gtin,batch:g.batch,exp:g.exp,name:names[gtin]||''},
+    looksGS1&&g.exp?'تم قراءة التاريخ ورقم التشغيلة تلقائيًا. راجعهما ثم احفظ.':'الباركود لا يحتوي تاريخ. أدخل التاريخ من العلبة.');
+}
+
+/* ---- Form ---- */
+function openForm(d,note){
+  d=d||{};$('fName').value=d.name||'';$('fExp').value=d.exp||'';$('fBatch').value=d.batch||'';$('fQty').value=1;$('fGtin').value=d.gtin||'';
+  $('fNote').style.display=note?'block':'none';$('fNote').textContent=note||'';
+  $('formSheet').classList.add('show');
+}
+function closeForm(){chain=false;$('formSheet').classList.remove('show')}
+function commit(){
+  const exp=$('fExp').value;if(!exp){alert('أدخل تاريخ الانتهاء');return false}
+  const name=$('fName').value.trim(),gtin=$('fGtin').value.trim();
+  if(!name&&!gtin){alert('أدخل اسم الدواء');return false}
+  const batch=$('fBatch').value.trim(),qty=Math.max(1,parseInt($('fQty').value)||1);
+  const dup=items.find(i=>i.gtin===gtin&&gtin&&i.batch===batch&&i.exp===exp);
+  if(dup)dup.qty+=qty;else items.push({id:Date.now()+''+Math.random().toString(36).slice(2,5),name,exp,batch,qty,gtin});
+  if(gtin&&name)names[gtin]=name;
+  persist();render();return true;
+}
+function saveItem(){if(commit())closeForm()}
+function saveAndNext(){if(commit()){$('formSheet').classList.remove('show');setTimeout(openScan,200)}}
+
+/* ---- Export / backup ---- */
+function openTools(){$('toolSheet').classList.add('show')}
+function closeTools(){$('toolSheet').classList.remove('show')}
+async function shareOrDownload(name,type,content){
+  const blob=new Blob([content],{type});
+  const file=new File([blob],name,{type});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:name});return}catch(e){if(e.name==='AbortError')return}}
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();
+}
+function exportCSV(){
+  const r=filtered();if(!r.length){alert('لا توجد أصناف للتصدير');return}
+  const q=v=>'"'+String(v).replace(/"/g,'""')+'"';
+  const rows=[['اسم الدواء','تاريخ الانتهاء','Batch','الكمية','الباركود','الحالة']].concat(r.map(i=>[i.name,i.exp,i.batch,i.qty,i.gtin,label(i.exp)]));
+  shareOrDownload('returns-'+new Date().toISOString().slice(0,10)+'.csv','text/csv','\ufeff'+rows.map(x=>x.map(q).join(',')).join('\n'));
+}
+function backup(){shareOrDownload('expiry-backup.json','application/json',JSON.stringify({items,names}))}
+function restore(ev){
+  const f=ev.target.files[0];if(!f)return;const rd=new FileReader();
+  rd.onload=()=>{try{const d=JSON.parse(rd.result);if(!Array.isArray(d.items))throw 0;items=d.items;names=d.names||{};persist();render();closeTools();alert('تم الاسترجاع')}catch(e){alert('ملف غير صالح')}};
+  rd.readAsText(f);ev.target.value='';
+}
+render();
+</script>
+</body>
+</html>
