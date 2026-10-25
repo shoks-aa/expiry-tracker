@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Expiry">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="apple-touch-icon" href="IMG_3792.png">
+<title>Expiry Tracker</title>
+<script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.21.3/umd/index.min.js"></script>
+<style>
+:root{--bg:#f4f6f5;--card:#fff;--ink:#12201c;--mute:#5d6b66;--line:#dbe3df;--main:#0b6b57;--red:#c62828;--amb:#e08600;--grn:#1b7f3b}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:-apple-system,"Segoe UI",Tahoma,sans-serif;padding:env(safe-area-inset-top) 0 calc(80px + env(safe-area-inset-bottom))}
+header{padding:16px;font-size:20px;font-weight:700}
+.tabs{display:flex;gap:6px;padding:0 12px 10px;overflow-x:auto}
+.tabs button{flex:none;border:1.5px solid var(--line);background:var(--card);padding:9px 14px;border-radius:20px;font-size:15px;color:var(--ink)}
+.tabs button.on{background:var(--main);color:#fff;border-color:var(--main)}
+.list{padding:0 12px}
+.item{background:var(--card);border-radius:12px;padding:12px 14px;margin-bottom:10px;border-inline-start:8px solid var(--grn)}
+.item.red{border-color:var(--red)}.item.amb{border-color:var(--amb)}
+.item h3{margin:0 0 4px;font-size:17px}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px;color:var(--mute);font-size:14px}
+.badge{font-weight:700;font-size:14px}
+.red .badge{color:var(--red)}.amb .badge{color:var(--amb)}.grn .badge{color:var(--grn)}
+.del{border:0;background:none;color:var(--red);font-size:14px;padding:6px 0}
+.empty{text-align:center;color:var(--mute);padding:40px 20px;line-height:1.8}
+.bar{position:fixed;inset:auto 0 0 0;background:var(--card);border-top:1px solid var(--line);padding:10px 12px calc(10px + env(safe-area-inset-bottom));display:flex;gap:8px}
+.bar button{flex:1;padding:14px 6px;font-size:16px;border-radius:12px;border:1.5px solid var(--main);background:var(--card);color:var(--main);font-weight:600}
+.bar button.pri{background:var(--main);color:#fff}
+.sheet{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-end;z-index:5}
+.sheet.show{display:flex}
+.panel{background:var(--card);width:100%;max-height:92%;overflow:auto;border-radius:18px 18px 0 0;padding:16px 16px calc(20px + env(safe-area-inset-bottom))}
+.panel h2{margin:0 0 12px;font-size:18px}
+label{display:block;font-size:14px;color:var(--mute);margin:10px 0 4px}
+input{width:100%;font-size:17px;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+.btns{display:flex;gap:8px;margin-top:16px}
+.btns button{flex:1;padding:14px;font-size:16px;border-radius:12px;border:1.5px solid var(--main);background:var(--card);color:var(--main);font-weight:600}
+.btns .pri{background:var(--main);color:#fff}
+video{width:100%;border-radius:12px;background:#000;max-height:50vh;object-fit:cover}
+.hint{font-size:14px;color:var(--mute);margin:8px 0}
+.note{background:#e9f4f0;padding:8px 10px;border-radius:8px;font-size:14px;margin-top:8px}
+select{width:100%;font-size:17px;padding:12px;border:1.5px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+</style>
+</head>
+<body>
+<header>Medicine Expiry Tracker</header>
+<div class="tabs"><button id="vExp" class="on" onclick="setView('exp')">Expiry</button><button id="vCat" onclick="setView('cat')">Catalog</button></div>
+<div id="expWrap"><div class="tabs" id="tabs"></div><div class="list" id="list"></div></div>
+<div id="catWrap" style="display:none">
+  <div style="padding:0 12px 6px"><input id="catQ" placeholder="Search by name or barcode" oninput="renderCat()"></div>
+  <div class="hint" id="catCount" style="padding:0 16px"></div>
+  <div class="list" id="catList"></div>
+</div>
+
+<div class="bar" id="barExp">
+  <button class="pri" onclick="openScan()">Scan box</button>
+  <button onclick="openForm()">Manual entry</button>
+  <button onclick="openTools()">Export</button>
+</div>
+<div class="bar" id="barCat" style="display:none">
+  <button class="pri" onclick="openScan('cat')">Scan & add</button>
+  <button onclick="openCatForm()">Add manually</button>
+  <button onclick="$('catTools').classList.add('show')">Import / Export</button>
+</div>
+
+<!-- Scan sheet -->
+<div class="sheet" id="scanSheet"><div class="panel">
+  <h2>Point the camera at the barcode</h2>
+  <video id="vid" playsinline muted></video>
+  <img id="prev" alt="" style="display:none;width:100%;border-radius:12px;max-height:40vh;object-fit:contain;margin-top:8px;background:#000">
+  <div class="hint" id="scanMsg">Starting camera...</div>
+  <div class="btns"><button class="pri" onclick="photoMode()">Take photo (more accurate)</button></div>
+  <input type="file" id="photoIn" accept="image/*" capture="environment" style="display:none" onchange="scanPhoto(event)">
+  <div class="btns"><button onclick="closeScan();scanMode==='cat'?openCatForm():openForm()">Manual entry</button><button onclick="closeScan()">Cancel</button></div>
+</div></div>
+
+<!-- Form sheet -->
+<div class="sheet" id="formSheet"><div class="panel">
+  <h2>Box details</h2>
+  <div class="note" id="fNote" style="display:none"></div>
+  <label>Medicine name</label><input id="fName" placeholder="e.g. Panadol 500">
+  <label>Expiry date</label><input id="fExp" type="date">
+  <label>Batch number</label><input id="fBatch">
+  <label>Quantity</label><input id="fQty" type="number" inputmode="numeric" value="1" min="1">
+  <label>Barcode (GTIN)</label><input id="fGtin" inputmode="numeric">
+  <div class="btns"><button onclick="closeForm()">Cancel</button><button class="pri" onclick="saveItem()">Save</button></div>
+  <div class="btns"><button onclick="saveAndNext()">Save & scan next</button></div>
+</div></div>
+
+<!-- Tools sheet -->
+<div class="sheet" id="toolSheet"><div class="panel">
+  <h2>Export & backup</h2>
+  <div class="btns"><button class="pri" onclick="exportCSV()">Excel file (for returns)</button></div>
+  <div class="hint">Exports the items shown in the current tab.</div>
+  <div class="btns"><button onclick="backup()">Backup</button><button onclick="document.getElementById('imp').click()">Restore</button></div>
+  <input type="file" id="imp" accept=".json" style="display:none" onchange="restore(event)">
+  <div class="btns"><button onclick="closeTools()">Close</button></div>
+</div></div>
+
+<div class="sheet" id="catForm"><div class="panel">
+  <h2 id="cfTitle">Item</h2>
+  <div class="note" id="cfNote" style="display:none"></div>
+  <label>Barcode</label><input id="cfGtin" inputmode="numeric">
+  <label>Item name</label><input id="cfName">
+  <div class="btns"><button onclick="$('catForm').classList.remove('show')">Cancel</button><button class="pri" onclick="saveCat()">Save</button></div>
+  <div class="btns"><button onclick="saveCat(true)">Save & scan next</button></div>
+  <div class="btns" id="cfDelRow"><button onclick="delCat()" style="color:var(--red);border-color:var(--red)">Delete item</button></div>
+</div></div>
+<div class="sheet" id="catTools"><div class="panel">
+  <h2>Import & export catalog</h2>
+  <div class="btns"><button class="pri" onclick="$('impCat').click()">Import from Excel / CSV</button></div>
+  <input type="file" id="impCat" accept=".csv,.txt,.xlsx,.xls" style="display:none" onchange="readCatFile(event)">
+  <div class="hint">The file needs a barcode column and a name column. Existing names are updated.</div>
+  <div class="btns"><button onclick="exportCat()">Export catalog (CSV)</button></div>
+  <div class="hint">To share the same catalog with other staff: export it from your device and send it to them to import on theirs.</div>
+  <div class="btns"><button onclick="$('catTools').classList.remove('show')">Close</button></div>
+</div></div>
+<div class="sheet" id="mapSheet"><div class="panel">
+  <h2>Choose columns</h2>
+  <div class="hint" id="mapInfo"></div>
+  <label>Barcode column</label><select id="mapG"></select>
+  <label>Name column</label><select id="mapN"></select>
+  <div class="btns"><button onclick="$('mapSheet').classList.remove('show')">Cancel</button><button class="pri" onclick="doImport()">Import</button></div>
+</div></div>
+
+<script>
+const KEY='expiry_items_v1', NAMES='expiry_names_v1';
+let items=[], names={}, scanMode='exp', tab='soon3', reader=null, scanning=false, chain=false;
+try{items=JSON.parse(localStorage.getItem(KEY)||'[]');names=JSON.parse(localStorage.getItem(NAMES)||'{}')}catch(e){}
+const persist=()=>{try{localStorage.setItem(KEY,JSON.stringify(items));localStorage.setItem(NAMES,JSON.stringify(names))}catch(e){alert('Could not save')}};
+const $=id=>document.getElementById(id);
+const TABS=[['expired','Expired'],['soon3','Within 3 months'],['soon6','Within 6 months'],['all','All']];
+
+function daysLeft(d){const t=new Date();t.setHours(0,0,0,0);return Math.round((new Date(d+'T00:00:00')-t)/864e5)}
+function status(d){const n=daysLeft(d);return n<0?'red':n<=90?'amb':'grn'}
+function label(d){const n=daysLeft(d);if(n<0)return 'Expired '+(-n)+' days ago';if(n===0)return 'Expires today';if(n<60)return n+' days left';return Math.round(n/30)+' months left'}
+function filtered(){
+  let r=items.slice().sort((a,b)=>a.exp.localeCompare(b.exp));
+  if(tab==='expired')r=r.filter(i=>daysLeft(i.exp)<0);
+  if(tab==='soon3')r=r.filter(i=>daysLeft(i.exp)<=90);
+  if(tab==='soon6')r=r.filter(i=>daysLeft(i.exp)<=180);
+  return r;
+}
+function render(){
+  $('tabs').innerHTML=TABS.map(([k,v])=>`<button class="${k===tab?'on':''}" onclick="tab='${k}';render()">${v}</button>`).join('');
+  const r=filtered();
+  if(!r.length){$('list').innerHTML='<div class="empty">No items here.<br>Tap “Scan box” to add your first item.</div>';return}
+  $('list').innerHTML=r.map(i=>{const s=status(i.exp);return `<div class="item ${s}"><h3>${esc(i.name||names[i.gtin]||'No name')}</h3>
+  <div class="row"><span>${i.exp}</span><span class="badge ${s}">${label(i.exp)}</span></div>
+  <div class="row"><span>Batch: ${esc(i.batch||'-')} • Qty: ${i.qty}</span><button class="del" onclick="del('${i.id}')">Delete</button></div></div>`}).join('');
+}
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function del(id){if(confirm('Delete this item?')){items=items.filter(i=>i.id!==id);persist();render()}}
+
+/* ---- GS1 parsing ---- */
+function parseGS1(raw){
+  const out={};let s=raw.replace(/^\]d2|^\]C1|^\]Q3/,'');
+  if(s.includes('(')){ // human readable form (01)...(17)...
+    const re=/\((\d{2,4})\)([^(]*)/g;let m;
+    while((m=re.exec(s)))out[m[1]]=m[2];
+  }else{
+    const GS='\x1d';const fixed={'00':18,'01':14,'02':14,'11':6,'13':6,'15':6,'17':6,'20':2};
+    let i=0;
+    while(i<s.length){
+      if(s[i]===GS){i++;continue}
+      const ai=s.substr(i,2);
+      if(fixed[ai]){out[ai]=s.substr(i+2,fixed[ai]);i+=2+fixed[ai]}
+      else if(['10','21','22','30','37','90','91','92','93','94','95','96','97','98','99'].includes(ai)){
+        let e=s.indexOf(GS,i+2);if(e<0)e=s.length;
+        out[ai]=s.substring(i+2,e);i=e;
+      }else break;
+    }
+  }
+  let exp=null;
+  if(out['17']&&/^\d{6}$/.test(out['17'])){
+    const yy=+out['17'].slice(0,2),mm=+out['17'].slice(2,4);let dd=+out['17'].slice(4,6);
+    const yr=2000+yy;if(dd===0)dd=new Date(yr,mm,0).getDate();
+    exp=`${yr}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+  }
+  return{gtin:out['01']||'',batch:out['10']||'',exp};
+}
+
+/* ---- Scanner ---- */
+async function openScan(mode){scanMode=mode||'exp';
+  if(typeof ZXing==='undefined'){alert('Barcode library failed to load. Check your internet and reopen the page.');return}
+  $('scanSheet').classList.add('show');$('vid').style.display='block';$('prev').style.display='none';$('scanMsg').textContent='Starting camera...';
+  const hints=getHints();
+  reader=new ZXing.BrowserMultiFormatReader(hints,150);scanning=true;
+  try{
+    await reader.decodeFromConstraints({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}}},'vid',(res)=>{
+      if(res&&scanning){scanning=false;if(navigator.vibrate)navigator.vibrate(80);onCode(res.getText(),res.getBarcodeFormat())}
+    });
+    $('scanMsg').textContent='Move the box closer until the barcode is clear';
+  }catch(e){$('scanMsg').textContent='Cannot open the camera. Allow camera access in Safari settings.'}
+}
+function getHints(){
+  const F=ZXing.BarcodeFormat,H=ZXing.DecodeHintType,hints=new Map();
+  hints.set(H.POSSIBLE_FORMATS,[F.DATA_MATRIX,F.QR_CODE,F.EAN_13,F.EAN_8,F.CODE_128,F.CODE_39,F.UPC_A,F.UPC_E,F.ITF,F.CODE_93,F.CODABAR]);
+  hints.set(H.TRY_HARDER,true);
+  return hints;
+}
+function photoMode(){
+  scanning=false;try{reader&&reader.reset()}catch(e){}
+  $('scanMsg').textContent='Take a close, well-lit photo of the barcode, then tap Use Photo.';
+  $('photoIn').click();
+}
+function scanPhoto(ev){
+  const f=ev.target.files[0];ev.target.value='';if(!f)return;
+  $('scanMsg').textContent='Reading photo...';
+  const img=new Image(),url=URL.createObjectURL(f);
+  img.onload=async()=>{
+    $('vid').style.display='none';$('prev').src=url;$('prev').style.display='block';
+    const res=await decodeImage(img);
+    if(res){$('prev').style.display='none';$('vid').style.display='block';URL.revokeObjectURL(url);onCode(res.getText(),res.getBarcodeFormat())}
+    else{$('scanMsg').textContent='Could not read the barcode. Shoot from 10-15 cm, focus on the barcode with good light, or tap “Manual entry”.'}
+  };
+  img.onerror=()=>{$('scanMsg').textContent='Could not open the photo'};
+  img.src=url;
+}
+const tick=()=>new Promise(r=>setTimeout(r,0));
+function tryCanvas(c,hints){
+  for(const Bin of [ZXing.HybridBinarizer,ZXing.GlobalHistogramBinarizer]){
+    try{
+      const bmp=new ZXing.BinaryBitmap(new Bin(new ZXing.HTMLCanvasElementLuminanceSource(c)));
+      const r=new ZXing.MultiFormatReader();r.setHints(hints);
+      return r.decode(bmp);
+    }catch(e){}
+  }
+  return null;
+}
+async function decodeImage(img){
+  const hints=getHints(),W=img.naturalWidth,H=img.naturalHeight,jobs=[];
+  for(const max of [1600,1000,2400])jobs.push({sx:0,sy:0,sw:W,sh:H,max});
+  for(const frac of [0.5,0.34,0.25]){
+    const cw=W*frac,ch=H*frac,dx=cw*0.5,dy=ch*0.5;
+    for(let y=0;y+ch<=H+1;y+=dy)for(let x=0;x+cw<=W+1;x+=dx)jobs.push({sx:x,sy:y,sw:cw,sh:ch,max:900});
+  }
+  for(let i=0;i<jobs.length;i++){
+    const j=jobs[i],k=j.max/Math.max(j.sw,j.sh);
+    const c=document.createElement('canvas');c.width=Math.round(j.sw*k);c.height=Math.round(j.sh*k);
+    c.getContext('2d').drawImage(img,j.sx,j.sy,j.sw,j.sh,0,0,c.width,c.height);
+    const t=tryCanvas(c,hints);if(t)return t;
+    if(i%4===0){$('scanMsg').textContent='Searching for barcode... '+Math.round(i/jobs.length*100)+'%';await tick()}
+  }
+  return null;
+}
+function closeScan(){scanning=false;chain=false;try{reader&&reader.reset()}catch(e){}$('scanSheet').classList.remove('show')}
+function onCode(text,fmt){
+  try{reader.reset()}catch(e){}
+  $('scanSheet').classList.remove('show');
+  const F=ZXing.BarcodeFormat;
+  const is2D=(fmt===F.DATA_MATRIX||fmt===F.QR_CODE);
+  const g=(is2D||/[\x1d(]/.test(text))?parseGS1(text):{gtin:'',batch:'',exp:null};
+  let gtin=g.gtin||(/^\d{8,14}$/.test(text)?text:'');
+  if(gtin)gtin=gtin.padStart(14,'0');
+  if(scanMode==='cat'){openCatForm(gtin||text.replace(/\D/g,''));return}
+  let note;
+  if(g.exp)note='Expiry date and batch were read automatically. Review them, then save.';
+  else if(gtin&&names[gtin])note='Medicine recognized. Enter the expiry date and batch from the box.';
+  else if(gtin)note='Plain barcode with no date. Enter the name and date once; the name will be saved for this barcode.';
+  else note='Code was read but has no product number. Enter the details manually.';
+  openForm({gtin,batch:g.batch,exp:g.exp,name:names[gtin]||''},note);
+  if(gtin&&!names[gtin]){
+    $('fNote').style.display='block';$('fNote').textContent='Looking up the product name...';
+    lookupName(gtin).then(n=>{
+      if(!$('formSheet').classList.contains('show')||$('fGtin').value!==gtin)return;
+      if(n&&!$('fName').value){$('fName').value=n;$('fNote').textContent='Name fetched from the internet, please review. '+note}
+      else{$('fNote').textContent=(n?'':'Product name not found, type it manually. ')+note}
+    });
+  }
+}
+async function lookupName(gtin){
+  const codes=[...new Set([gtin.replace(/^0/,''),gtin.replace(/^0+/,'')])].filter(Boolean);
+  const hosts=['world.openfoodfacts.org','world.openbeautyfacts.org','world.openproductsfacts.org'];
+  for(const h of hosts)for(const c of codes){
+    try{
+      const ctl=new AbortController(),t=setTimeout(()=>ctl.abort(),6000);
+      const r=await fetch(`https://${h}/api/v2/product/${c}.json?fields=product_name,product_name_en,product_name_ar,generic_name,brands`,{signal:ctl.signal});
+      clearTimeout(t);
+      if(!r.ok)continue;
+      const j=await r.json();
+      if(j&&j.status===1&&j.product){
+        const p=j.product,n=(p.product_name||p.product_name_en||p.product_name_ar||p.generic_name||'').trim();
+        const br=(p.brands||'').split(',')[0].trim();
+        if(n)return br&&!n.toLowerCase().includes(br.toLowerCase())?br+' '+n:n;
+      }
+    }catch(e){}
+  }
+  return null;
+}
+
+/* ---- Form ---- */
+function openForm(d,note){
+  d=d||{};$('fName').value=d.name||'';$('fExp').value=d.exp||'';$('fBatch').value=d.batch||'';$('fQty').value=1;$('fGtin').value=d.gtin||'';
+  $('fNote').style.display=note?'block':'none';$('fNote').textContent=note||'';
+  $('formSheet').classList.add('show');
+}
+function closeForm(){chain=false;$('formSheet').classList.remove('show')}
+function commit(){
+  const exp=$('fExp').value;if(!exp){alert('Enter the expiry date');return false}
+  const name=$('fName').value.trim(),gtin=$('fGtin').value.trim();
+  if(!name&&!gtin){alert('Enter the medicine name');return false}
+  const batch=$('fBatch').value.trim(),qty=Math.max(1,parseInt($('fQty').value)||1);
+  const dup=items.find(i=>i.gtin===gtin&&gtin&&i.batch===batch&&i.exp===exp);
+  if(dup)dup.qty+=qty;else items.push({id:Date.now()+''+Math.random().toString(36).slice(2,5),name,exp,batch,qty,gtin});
+  if(gtin&&name)names[gtin]=name;
+  persist();render();return true;
+}
+function saveItem(){if(commit())closeForm()}
+function saveAndNext(){if(commit()){$('formSheet').classList.remove('show');setTimeout(openScan,200)}}
+
+
+/* ---- Catalog ---- */
+function setView(v){
+  $('expWrap').style.display=v==='exp'?'block':'none';$('catWrap').style.display=v==='cat'?'block':'none';
+  $('barExp').style.display=v==='exp'?'flex':'none';$('barCat').style.display=v==='cat'?'flex':'none';
+  $('vExp').className=v==='exp'?'on':'';$('vCat').className=v==='cat'?'on':'';
+  if(v==='cat')renderCat();
+}
+function renderCat(){
+  const q=($('catQ').value||'').trim().toLowerCase();
+  const all=Object.entries(names);
+  const e=all.filter(([g,n])=>!q||n.toLowerCase().includes(q)||g.includes(q)).sort((a,b)=>a[1].localeCompare(b[1],'ar'));
+  $('catCount').textContent=all.length+' items'+(q?' • results: '+e.length:'')+(e.length>100?' (first 100)':'');
+  $('catList').innerHTML=e.length?e.slice(0,100).map(([g,n])=>`<div class="item" style="border-color:var(--main)" onclick="openCatForm('${g}')"><h3>${esc(n)}</h3><div class="row"><span>${g.replace(/^0/,'')}</span></div></div>`).join(''):'<div class="empty">No items.<br>Tap “Scan & add” or import a file.</div>';
+}
+function openCatForm(g){
+  g=g||'';const ex=names[g]!==undefined;
+  $('cfGtin').value=g;$('cfGtin').readOnly=ex;$('cfName').value=ex?names[g]:'';
+  $('cfTitle').textContent=ex?'Edit item':'New item';
+  $('cfDelRow').style.display=ex?'flex':'none';
+  $('cfNote').style.display=ex?'block':'none';$('cfNote').textContent=ex?'Item already exists, you can edit its name.':'';
+  $('catForm').classList.add('show');
+  if(!ex&&g){
+    $('cfNote').style.display='block';$('cfNote').textContent='Looking up the product name...';
+    lookupName(g.padStart(14,'0')).then(n=>{
+      if(!$('catForm').classList.contains('show')||$('cfGtin').value!==g)return;
+      if(n&&!$('cfName').value)$('cfName').value=n;
+      $('cfNote').textContent=n?'Name fetched from the internet, please review.':'Name not found, type it manually.';
+    });
+  }
+}
+function saveCat(next){
+  const d=$('cfGtin').value.replace(/\D/g,''),n=$('cfName').value.trim();
+  if(d.length<6||d.length>14){alert('Enter a valid barcode (digits only)');return}
+  if(!n){alert('Enter the item name');return}
+  names[d.padStart(14,'0')]=n;persist();renderCat();
+  $('catForm').classList.remove('show');
+  if(next)setTimeout(()=>openScan('cat'),200);
+}
+function delCat(){const g=$('cfGtin').value;if(names[g]!==undefined&&confirm('Delete this item from the catalog?')){delete names[g];persist();renderCat();$('catForm').classList.remove('show')}}
+function exportCat(){
+  const q=v=>'"'+String(v).replace(/"/g,'""')+'"';
+  const rows=[['Barcode','Name']].concat(Object.entries(names).map(([g,n])=>[g.replace(/^0/,''),n]));
+  shareOrDownload('catalog-'+new Date().toISOString().slice(0,10)+'.csv','text/csv','\ufeff'+rows.map(r=>r.map(q).join(',')).join('\n'));
+}
+let impRows=null,impHdr=false;
+function loadXLSX(){return new Promise((ok,no)=>{if(window.XLSX)return ok();const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';s.onload=ok;s.onerror=()=>no(new Error('xlsx'));document.head.appendChild(s)})}
+function parseCSV(t){
+  const first=t.split('\n')[0],d=[',',';','\t'].sort((a,b)=>first.split(b).length-first.split(a).length)[0];
+  const rows=[];let r=[],c='',q=false;
+  for(let i=0;i<t.length;i++){const ch=t[i];
+    if(q){if(ch==='"'){if(t[i+1]==='"'){c+='"';i++}else q=false}else c+=ch}
+    else if(ch==='"')q=true;
+    else if(ch===d){r.push(c);c=''}
+    else if(ch==='\n'||ch==='\r'){if(ch==='\r'&&t[i+1]==='\n')i++;r.push(c);c='';rows.push(r);r=[]}
+    else c+=ch}
+  if(c||r.length){r.push(c);rows.push(r)}
+  return rows.filter(x=>x.some(v=>String(v).trim()));
+}
+const toDig=v=>typeof v==='number'?String(Math.round(v)):(/e\+/i.test(String(v))?'':String(v).replace(/\D/g,''));
+const isBar=v=>{const d=toDig(v);return d.length>=8&&d.length<=14};
+async function readCatFile(ev){
+  const f=ev.target.files[0];ev.target.value='';if(!f)return;
+  try{
+    const buf=await f.arrayBuffer();
+    if(/\.xlsx?$/i.test(f.name)){
+      await loadXLSX();
+      const wb=XLSX.read(buf,{type:'array'});
+      impRows=XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{header:1,raw:true,defval:''});
+    }else{
+      let t;try{t=new TextDecoder('utf-8',{fatal:true}).decode(buf)}catch(e){t=new TextDecoder('windows-1256').decode(buf)}
+      impRows=parseCSV(t.replace(/^\ufeff/,''));
+    }
+    impRows=impRows.filter(r=>r.some(v=>String(v).trim()));
+    if(impRows.length<1)throw 0;
+    const n=Math.max(...impRows.slice(0,50).map(r=>r.length)),H=impRows[0].map(String);
+    const score=Array.from({length:n},(_,c)=>impRows.slice(1,31).filter(r=>isBar(r[c])).length);
+    let bc=H.findIndex(h=>/barcode|باركود|ean|gtin|كود/i.test(h));if(bc<0)bc=score.indexOf(Math.max(...score));
+    let nc=H.findIndex((h,i)=>i!==bc&&/name|اسم|صنف|item|product|desc|بيان/i.test(h));if(nc<0)nc=[...Array(n).keys()].find(i=>i!==bc);
+    impHdr=!isBar(impRows[0][bc]);
+    const opts=Array.from({length:n},(_,c)=>`<option value="${c}">${esc(impHdr&&H[c]?H[c]:'Column '+(c+1))}</option>`).join('');
+    $('mapG').innerHTML=opts;$('mapN').innerHTML=opts;$('mapG').value=bc;$('mapN').value=nc;
+    $('mapInfo').textContent='Rows: '+(impRows.length-(impHdr?1:0))+'. Review the columns, then tap Import.';
+    $('mapSheet').classList.add('show');
+  }catch(e){alert('Could not read the file. For Excel, check your internet, or save it as CSV and try again.')}
+}
+function doImport(){
+  const g=+$('mapG').value,n=+$('mapN').value;let add=0,upd=0,skip=0;
+  for(let i=impHdr?1:0;i<impRows.length;i++){
+    const d=toDig(impRows[i][g]),name=String(impRows[i][n]==null?'':impRows[i][n]).trim();
+    if(d.length<8||d.length>14||!name){skip++;continue}
+    const k=d.padStart(14,'0');
+    if(names[k]===undefined)add++;else if(names[k]!==name)upd++;
+    names[k]=name;
+  }
+  persist();renderCat();$('mapSheet').classList.remove('show');$('catTools').classList.remove('show');
+  alert('Import complete\nNew items: '+add+'\nUpdated: '+upd+'\nSkipped: '+skip);
+}
+
+/* ---- Export / backup ---- */
+function openTools(){$('toolSheet').classList.add('show')}
+function closeTools(){$('toolSheet').classList.remove('show')}
+async function shareOrDownload(name,type,content){
+  const blob=new Blob([content],{type});
+  const file=new File([blob],name,{type});
+  if(navigator.canShare&&navigator.canShare({files:[file]})){try{await navigator.share({files:[file],title:name});return}catch(e){if(e.name==='AbortError')return}}
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();
+}
+function exportCSV(){
+  const r=filtered();if(!r.length){alert('No items to export');return}
+  const q=v=>'"'+String(v).replace(/"/g,'""')+'"';
+  const rows=[['Medicine name','Expiry date','Batch','Quantity','Barcode','Status']].concat(r.map(i=>[i.name,i.exp,i.batch,i.qty,i.gtin,label(i.exp)]));
+  shareOrDownload('returns-'+new Date().toISOString().slice(0,10)+'.csv','text/csv','\ufeff'+rows.map(x=>x.map(q).join(',')).join('\n'));
+}
+function backup(){shareOrDownload('expiry-backup.json','application/json',JSON.stringify({items,names}))}
+function restore(ev){
+  const f=ev.target.files[0];if(!f)return;const rd=new FileReader();
+  rd.onload=()=>{try{const d=JSON.parse(rd.result);if(!Array.isArray(d.items))throw 0;items=d.items;names=d.names||{};persist();render();closeTools();alert('Restored')}catch(e){alert('Invalid file')}};
+  rd.readAsText(f);ev.target.value='';
+}
+render();
+</script>
+</body>
+</html>
